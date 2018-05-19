@@ -17,24 +17,55 @@ func TestVersion(t *testing.T) {
 }
 
 func TestCompress(t *testing.T) {
-	plaintext := []byte("AAAAAAAAAAAAAAAA")
-	t.Logf("plaintext = %v", plaintext)
+	plaintext0 := []byte("aldkjflakdjf.,asdfjlkjlakjdskkkkkkkkkkkkkk")
+	plaintext1 := []byte("AAAAAAAAAAAAAAAA")
+	plaintext2 := []byte("1234567890")
 
-	compressed, err := Compress(nil, plaintext)
+	var l [3]int
+	decompressed := make([]byte, 0, len(plaintext0))
+
+	compressed, err := Compress(nil, plaintext0)
 	if err != nil {
 		t.Errorf("Compress failed: %v", err)
 	}
-	t.Logf("compressed = %v", compressed)
+	l[0] = len(compressed)
 
-	decompressed := make([]byte, 0, len(plaintext))
-	decompressed, err = Decompress(decompressed, compressed)
+	compressed, err = Compress(compressed, plaintext1)
+	if err != nil {
+		t.Errorf("Compress failed: %v", err)
+	}
+	l[1] = len(compressed)
+
+	compressed, err = Compress(compressed, plaintext2)
+	if err != nil {
+		t.Errorf("Compress failed: %v", err)
+	}
+	l[2] = len(compressed)
+
+	decompressed, err = Decompress(decompressed, compressed[:l[0]])
 	if err != nil {
 		t.Errorf("Decompress failed: %v", err)
 	}
-	t.Logf("decompressed = %v", decompressed)
+	if !bytes.Equal(decompressed, plaintext0) {
+		t.Error("decompressed != plaintext0")
+	}
 
-	if !bytes.Equal(decompressed, plaintext) {
-		t.Error("decompressed != plaintext")
+	decompressed = decompressed[0:0]
+	decompressed, err = Decompress(decompressed, compressed[l[0]:l[1]])
+	if err != nil {
+		t.Errorf("Decompress failed: %v", err)
+	}
+	if !bytes.Equal(decompressed, plaintext1) {
+		t.Error("decompressed != plaintext1")
+	}
+
+	decompressed = decompressed[0:0]
+	decompressed, err = Decompress(decompressed, compressed[l[1]:l[2]])
+	if err != nil {
+		t.Errorf("Decompress failed: %v", err)
+	}
+	if !bytes.Equal(decompressed, plaintext2) {
+		t.Error("decompressed != plaintext1")
 	}
 }
 
