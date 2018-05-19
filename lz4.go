@@ -11,7 +11,8 @@ import (
 )
 
 const (
-	LZ4_MAX_INPUT_SIZE = 0x7E000000
+	// MaxInputSize is the max supported input size. see macro LZ4_MAX_INPUT_SIZE.
+	MaxInputSize = 0x7E000000 // 2 113 929 216 bytes
 )
 
 // VersionNumber returns the library version number.
@@ -30,16 +31,19 @@ func VersionString() string {
 // in a "worst case" scenario (input data not compressible).
 // see macro LZ4_COMPRESSBOUND.
 func CompressBound(inputSize int) int {
-	if inputSize > LZ4_MAX_INPUT_SIZE {
+	if inputSize > MaxInputSize {
 		return 0
 	}
 	return inputSize + inputSize/255 + 16
 }
 
 // Compress appends compressed src to dst and returns the result.
-func Compress(dst, src []byte) []byte {
+func Compress(dst, src []byte) ([]byte, error) {
 	if len(src) == 0 {
-		return dst
+		return dst, nil
+	}
+	if len(src) > MaxInputSize {
+		return dst, errors.New("src is too large")
 	}
 
 	dstLen := len(dst)
@@ -53,7 +57,7 @@ func Compress(dst, src []byte) []byte {
 			C.int(cap(dst)-dstLen))
 		compressedSize := int(result)
 		if compressedSize > 0 {
-			return dst[:dstLen+compressedSize]
+			return dst[:dstLen+compressedSize], nil
 		}
 	}
 
@@ -70,7 +74,7 @@ func Compress(dst, src []byte) []byte {
 		C.int(cap(dst)-dstLen))
 	// Compression is guaranteed to succeed if 'dstCapacity' >= LZ4_compressBound(srcSize)
 	compressedSize := int(result)
-	return dst[:dstLen+compressedSize]
+	return dst[:dstLen+compressedSize], nil
 }
 
 // Decompress appends decompressed src to dst and returns the result.
@@ -89,8 +93,8 @@ func Decompress(dst, src []byte) ([]byte, error) {
 		C.int(len(src)),
 		C.int(cap(dst)-dstLen))
 	decompressedSize := int(result)
-	if decompressedSize >= 0 {
-		return dst[:dstLen+decompressedSize], nil
+	if decompressedSize < 0 {
+		return dst[:dstLen], errors.New("dst is not large enough, or src data is malformed")
 	}
-	return dst[:dstLen], errors.New("dst is not large enough, or src data is malformed")
+	return dst[:dstLen+decompressedSize], nil
 }

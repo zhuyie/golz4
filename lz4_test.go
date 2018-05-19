@@ -17,24 +17,23 @@ func TestVersion(t *testing.T) {
 }
 
 func TestCompress(t *testing.T) {
-	plainText := []byte("This is a test string")
-	t.Logf("plainText = %v", plainText)
+	plaintext := []byte("AAAAAAAAAAAAAAAA")
+	t.Logf("plaintext = %v", plaintext)
 
-	compressed := Compress(nil, plainText)
-	if len(compressed) == 0 {
-		t.Error("Compress failed")
+	compressed, err := Compress(nil, plaintext)
+	if err != nil {
+		t.Errorf("Compress failed: %v", err)
 	}
 	t.Logf("compressed = %v", compressed)
 
-	var err error
-	decompressed := make([]byte, 0, len(plainText))
+	decompressed := make([]byte, 0, len(plaintext))
 	decompressed, err = Decompress(decompressed, compressed)
 	if err != nil {
 		t.Errorf("Decompress failed: %v", err)
 	}
 	t.Logf("decompressed = %v", decompressed)
 
-	if !bytes.Equal(decompressed, plainText) {
-		t.Error("decompressed != plainText")
+	if !bytes.Equal(decompressed, plaintext) {
+		t.Error("decompressed != plaintext")
 	}
 }
