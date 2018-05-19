@@ -37,3 +37,37 @@ func TestCompress(t *testing.T) {
 		t.Error("decompressed != plaintext")
 	}
 }
+
+func TestCompressError(t *testing.T) {
+	var err error
+
+	// src is empty
+	_, err = Compress(nil, nil)
+	if err != nil {
+		t.Errorf("Compress failed: %v", err)
+	}
+	_, err = Decompress(nil, nil)
+	if err != nil {
+		t.Errorf("Decompress failed: %v", err)
+	}
+
+	src := []byte{1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}
+	compressed, err := Compress(nil, src)
+	if err != nil {
+		t.Errorf("Compress failed: %v", err)
+	}
+
+	// dst is full
+	dst := make([]byte, 1, 1)
+	_, err = Decompress(dst, src)
+	if err == nil {
+		t.Errorf("Expect error, got nil")
+	}
+
+	// dst not large enough
+	dst2 := make([]byte, 0, 2)
+	_, err = Decompress(dst2, compressed)
+	if err == nil {
+		t.Errorf("Expect error, got nil")
+	}
+}
