@@ -102,3 +102,32 @@ func TestCompressError(t *testing.T) {
 		t.Errorf("Expect error, got nil")
 	}
 }
+
+func TestContinueCompress(t *testing.T) {
+	cc := NewContinueCompress(32*1024, 4096)
+	defer cc.Release()
+
+	err := cc.Write([]byte("abcdefghijklmnoptrstuvwxyz"))
+	if err != nil {
+		t.Errorf("Write failed: %v", err)
+	}
+	err = cc.Write([]byte("1234"))
+	if err != nil {
+		t.Errorf("Write failed: %v", err)
+	}
+	dst0, err := cc.Process(nil)
+	if err != nil {
+		t.Errorf("Process failed: %v", err)
+	}
+	t.Logf("dst0 = %v", dst0)
+
+	err = cc.Write([]byte("abcdefghijklmnoptrstuvwxyz1234"))
+	if err != nil {
+		t.Errorf("Write failed: %v", err)
+	}
+	dst1, err := cc.Process(nil)
+	if err != nil {
+		t.Errorf("Process failed: %v", err)
+	}
+	t.Logf("dst1 = %v", dst1)
+}

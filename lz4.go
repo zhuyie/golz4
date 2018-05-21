@@ -7,12 +7,21 @@ import "C"
 
 import (
 	"errors"
+	"runtime"
 	"unsafe"
 )
 
 const (
 	// MaxInputSize is the max supported input size. see macro LZ4_MAX_INPUT_SIZE.
 	MaxInputSize = 0x7E000000 // 2 113 929 216 bytes
+)
+
+// Error codes
+var (
+	ErrSrcTooLarge       = errors.New("src is too large")
+	ErrDstNotLargeEnough = errors.New("dst is not large enough")
+	ErrDecompressFailed  = errors.New("dst is not large enough, or src data is malformed")
+	ErrNoData            = errors.New("no data")
 )
 
 // VersionNumber returns the library version number.
@@ -43,7 +52,7 @@ func Compress(dst, src []byte) ([]byte, error) {
 		return dst, nil
 	}
 	if len(src) > MaxInputSize {
-		return dst, errors.New("src is too large")
+		return dst, ErrSrcTooLarge
 	}
 
 	dstLen := len(dst)
@@ -84,7 +93,7 @@ func Decompress(dst, src []byte) ([]byte, error) {
 	}
 	dstLen := len(dst)
 	if cap(dst) == dstLen {
-		return dst, errors.New("dst is not large enough")
+		return dst, ErrDstNotLargeEnough
 	}
 	dst = dst[:cap(dst)]
 	result := C.LZ4_decompress_safe(
@@ -94,7 +103,99 @@ func Decompress(dst, src []byte) ([]byte, error) {
 		C.int(cap(dst)-dstLen))
 	decompressedSize := int(result)
 	if decompressedSize < 0 {
-		return dst[:dstLen], errors.New("dst is not large enough, or src data is malformed")
+		return dst[:dstLen], ErrDecompressFailed
 	}
 	return dst[:dstLen+decompressedSize], nil
+}
+
+// ContinueCompress implements streaming compression.
+type ContinueCompress struct {
+	dictionarySize int
+	maxMessageSize int
+	lz4Stream      *C.LZ4_stream_t
+	ringBuffer     []byte
+	offset         int
+	msgLen         int
+	err            error
+}
+
+// NewContinueCompress returns a new ContinueCompress object.
+// Call Release when the ContinueCompress is no longer needed.
+func NewContinueCompress(dictionarySize, maxMessageSize int) *ContinueCompress {
+	if dictionarySize < 4096 {
+		dictionarySize = 4096
+	}
+	if maxMessageSize < 256 {
+		maxMessageSize = 256
+	}
+	cc := &ContinueCompress{
+		dictionarySize: dictionarySize,
+		maxMessageSize: maxMessageSize,
+		lz4Stream:      C.LZ4_createStream(),
+		ringBuffer:     make([]byte, 0, dictionarySize+maxMessageSize),
+	}
+	runtime.SetFinalizer(cc, freeContinueCompress)
+	return cc
+}
+
+func freeContinueCompress(v interface{}) {
+	v.(*ContinueCompress).Release()
+}
+
+// Release releases all the resources occupied by cc.
+// cc cannot be used after the release.
+func (cc *ContinueCompress) Release() {
+	if cc.lz4Stream != nil {
+		C.LZ4_freeStream(cc.lz4Stream)
+		cc.lz4Stream = nil
+	}
+}
+
+// Write writes src to cc.
+func (cc *ContinueCompress) Write(src []byte) error {
+	srcLen := len(src)
+	if srcLen == 0 {
+		return nil
+	}
+	if cc.msgLen+srcLen > cc.maxMessageSize {
+		return ErrSrcTooLarge
+	}
+	cc.ringBuffer = append(cc.ringBuffer, src...)
+	cc.msgLen += len(src)
+	return nil
+}
+
+// Process compress buffered data to dst.
+func (cc *ContinueCompress) Process(dst []byte) ([]byte, error) {
+	if cc.msgLen == 0 {
+		return nil, ErrNoData
+	}
+	if cc.err != nil {
+		return dst, cc.err
+	}
+
+	// If dstCapacity >= LZ4_compressBound(srcSize), compression is guaranteed to succeed, and runs faster.
+	dstCapacity := CompressBound(cc.msgLen)
+	if cap(dst) < dstCapacity {
+		dst = make([]byte, 0, dstCapacity)
+	}
+	dst = dst[:dstCapacity]
+	result := C.LZ4_compress_fast_continue(
+		cc.lz4Stream,
+		(*C.char)(unsafe.Pointer(&cc.ringBuffer[cc.offset])),
+		(*C.char)(unsafe.Pointer(&dst[0])),
+		C.int(len(cc.ringBuffer)-cc.offset),
+		C.int(len(dst)),
+		1)
+	dst = dst[:result]
+
+	// Add and wraparound the ringbuffer offset
+	cc.offset += cc.msgLen
+	if cc.offset >= cc.dictionarySize {
+		cc.offset = 0
+		cc.ringBuffer = cc.ringBuffer[0:0]
+	}
+	cc.msgLen = 0
+
+	return dst, nil
 }
