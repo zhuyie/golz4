@@ -2,8 +2,8 @@ package golz4
 
 import (
 	"bytes"
+	"runtime"
 	"testing"
-	"time"
 )
 
 func TestVersion(t *testing.T) {
@@ -115,25 +115,25 @@ func TestContinueCompress(t *testing.T) {
 	if err != nil {
 		t.Errorf("Write failed: %v", err)
 	}
-	dst0, err := cc.Process(nil)
+	_, err = cc.Process(nil)
 	if err != nil {
 		t.Errorf("Process failed: %v", err)
 	}
-	t.Logf("dst0 = %v", dst0)
 
-	err = cc.Write([]byte("abcdefghijklmnoptrstuvwxyz1234"))
-	if err != nil {
-		t.Errorf("Write failed: %v", err)
+	for i := 0; i < 5000; i++ {
+		err = cc.Write([]byte("abcdefghijklmnoptrstuvwxyz1234"))
+		if err != nil {
+			t.Errorf("Write failed: %v", err)
+		}
+		_, err = cc.Process(nil)
+		if err != nil {
+			t.Errorf("Process failed: %v", err)
+		}
 	}
-	dst1, err := cc.Process(nil)
-	if err != nil {
-		t.Errorf("Process failed: %v", err)
-	}
-	t.Logf("dst1 = %v", dst1)
 
 	// Let finalizer run...
 	cc = nil
-	time.Sleep(500 * time.Millisecond)
+	runtime.GC()
 }
 
 func TestContinueCompressError(t *testing.T) {

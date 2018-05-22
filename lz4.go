@@ -22,6 +22,7 @@ var (
 	ErrDstNotLargeEnough = errors.New("dst is not large enough")
 	ErrDecompressFailed  = errors.New("dst is not large enough, or src data is malformed")
 	ErrNoData            = errors.New("no data")
+	ErrInternal          = errors.New("internal error")
 )
 
 // VersionNumber returns the library version number.
@@ -159,6 +160,9 @@ func (cc *ContinueCompress) Write(src []byte) error {
 	if cc.msgLen+srcLen > cc.maxMessageSize {
 		return ErrSrcTooLarge
 	}
+	if len(cc.ringBuffer)+srcLen > cap(cc.ringBuffer) {
+		return ErrInternal
+	}
 	cc.ringBuffer = append(cc.ringBuffer, src...)
 	cc.msgLen += len(src)
 	return nil
@@ -168,6 +172,9 @@ func (cc *ContinueCompress) Write(src []byte) error {
 func (cc *ContinueCompress) Process(dst []byte) ([]byte, error) {
 	if cc.msgLen == 0 {
 		return nil, ErrNoData
+	}
+	if cc.offset < 0 || cc.offset >= len(cc.ringBuffer) {
+		return nil, ErrInternal
 	}
 
 	// If dstCapacity >= LZ4_compressBound(srcSize), compression is guaranteed to succeed, and runs faster.
@@ -183,6 +190,9 @@ func (cc *ContinueCompress) Process(dst []byte) ([]byte, error) {
 		C.int(len(cc.ringBuffer)-cc.offset),
 		C.int(len(dst)),
 		1)
+	if result <= 0 {
+		panic(ErrInternal)
+	}
 	dst = dst[:result]
 
 	// Add and wraparound the ringbuffer offset
