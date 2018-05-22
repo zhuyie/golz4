@@ -163,12 +163,29 @@ func TestContinueCompress(t *testing.T) {
 	cc := NewContinueCompress(32*1024, 4096)
 	cd := NewContinueDecompress(32*1024, 4096)
 
+	if cc.DictionarySize() != 32*1024 {
+		t.Errorf("Except %v, got %v", 32*1024, cc.DictionarySize())
+	}
+	if cc.MaxMessageSize() != 4096 {
+		t.Errorf("Except %v, got %v", 4096, cc.MaxMessageSize())
+	}
+	if cd.DictionarySize() != 32*1024 {
+		t.Errorf("Except %v, got %v", 32*1024, cd.DictionarySize())
+	}
+	if cd.MaxMessageSize() != 4096 {
+		t.Errorf("Except %v, got %v", 4096, cd.MaxMessageSize())
+	}
+
 	var compressed []byte
 	var allCompressed [][]byte
 
-	err := cc.Write([]byte("abcdefghijklmnoptrstuvwxyz"))
+	vvv := []byte("abcdefghijklmnoptrstuvwxyz")
+	err := cc.Write(vvv)
 	if err != nil {
 		t.Errorf("Write failed: %v", err)
+	}
+	if cc.MsgLen() != len(vvv) {
+		t.Errorf("Except %v, got %v", len(vvv), cc.MsgLen())
 	}
 	err = cc.Write([]byte("1234"))
 	if err != nil {
@@ -250,8 +267,8 @@ func TestContinueDecompressError(t *testing.T) {
 	}
 
 	_, err = cd.Process([]byte("a"), nil)
-	if err != ErrDstNotLargeEnough {
-		t.Errorf("Expect %v, got %v", ErrDstNotLargeEnough, err)
+	if err != ErrDecompressFailed {
+		t.Errorf("Expect %v, got %v", ErrDecompressFailed, err)
 	}
 }
 

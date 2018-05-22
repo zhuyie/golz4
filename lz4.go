@@ -172,6 +172,16 @@ func (cc *ContinueCompress) Release() {
 	}
 }
 
+// DictionarySize returns the dictionary size.
+func (cc *ContinueCompress) DictionarySize() int {
+	return cc.dictionarySize
+}
+
+// MaxMessageSize returns the max message size.
+func (cc *ContinueCompress) MaxMessageSize() int {
+	return cc.maxMessageSize
+}
+
 // Write writes src to cc.
 func (cc *ContinueCompress) Write(src []byte) error {
 	srcLen := len(src)
@@ -189,7 +199,13 @@ func (cc *ContinueCompress) Write(src []byte) error {
 	return nil
 }
 
+// MsgLen returns the length of buffered data.
+func (cc *ContinueCompress) MsgLen() int {
+	return cc.msgLen
+}
+
 // Process compress buffered data to dst.
+// cap(dst) should >= CompressBound(cc.MsgLen()) to avoid reallocation.
 func (cc *ContinueCompress) Process(dst []byte) ([]byte, error) {
 	if cc.msgLen == 0 {
 		return nil, ErrNoData
@@ -286,18 +302,30 @@ func (cd *ContinueDecompress) Release() {
 	}
 }
 
+// DictionarySize returns the dictionary size.
+func (cd *ContinueDecompress) DictionarySize() int {
+	return cd.dictionarySize
+}
+
+// MaxMessageSize returns the max message size.
+func (cd *ContinueDecompress) MaxMessageSize() int {
+	return cd.maxMessageSize
+}
+
 // Process decompress src to dst.
+// cap(dst) should >= cd.MaxMessageSize() to avoid reallocation.
 func (cd *ContinueDecompress) Process(src, dst []byte) ([]byte, error) {
 	srcLen := len(src)
 	if srcLen == 0 {
 		return nil, ErrNoData
 	}
-	dstLen := cap(dst)
-	if dstLen < cd.maxMessageSize {
-		return nil, ErrDstNotLargeEnough
-	}
 	if cd.offset < 0 || cd.offset >= cd.dictionarySize {
 		return nil, ErrInternal
+	}
+
+	dstCapacity := cd.maxMessageSize
+	if cap(dst) < dstCapacity {
+		dst = make([]byte, 0, dstCapacity)
 	}
 
 	// Decompress to ringbuffer, then copy to dst
