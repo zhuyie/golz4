@@ -6,6 +6,12 @@ import (
 	"testing"
 )
 
+var (
+	plaintext0 = []byte("aldkjflakdjf.,asdfjlkjlakjdskkkkkkkkkkkkkk")
+	plaintext1 = []byte("AAAAAAAAAAAAAAAA")
+	plaintext2 = []byte("1234567890")
+)
+
 func TestVersion(t *testing.T) {
 	num := VersionNumber()
 	if num != 10802 {
@@ -17,11 +23,19 @@ func TestVersion(t *testing.T) {
 	}
 }
 
-func TestCompress(t *testing.T) {
-	plaintext0 := []byte("aldkjflakdjf.,asdfjlkjlakjdskkkkkkkkkkkkkk")
-	plaintext1 := []byte("AAAAAAAAAAAAAAAA")
-	plaintext2 := []byte("1234567890")
+func TestCompressBound(t *testing.T) {
+	n := CompressBound(255)
+	if n != 272 {
+		t.Errorf("Expect %v, got %v", 272, n)
+	}
 
+	n = CompressBound(MaxInputSize + 1)
+	if n != 0 {
+		t.Errorf("Expect %v, got %v", 0, n)
+	}
+}
+
+func TestCompress(t *testing.T) {
 	var l [3]int
 	decompressed := make([]byte, 0, len(plaintext0))
 
@@ -104,6 +118,47 @@ func TestCompressError(t *testing.T) {
 	}
 }
 
+func BenchmarkCompressFast(b *testing.B) {
+	var err error
+	dst := make([]byte, 0, CompressBound(len(plaintext0)))
+	b.SetBytes(int64(len(plaintext0)))
+	for i := 0; i < b.N; i++ {
+		dst, err = Compress(dst, plaintext0)
+		if err != nil {
+			b.Errorf("Compress error: %v", err)
+		}
+		dst = dst[0:0]
+	}
+}
+
+func BenchmarkCompressSlow(b *testing.B) {
+	var err error
+	b.SetBytes(int64(len(plaintext0)))
+	for i := 0; i < b.N; i++ {
+		_, err = Compress(nil, plaintext0)
+		if err != nil {
+			b.Errorf("Compress error: %v", err)
+		}
+	}
+}
+
+func BenchmarkDecompress(b *testing.B) {
+	compressed, err := Compress(nil, plaintext0)
+	if err != nil {
+		b.Errorf("Compress error: %v", err)
+	}
+
+	dst := make([]byte, 0, len(plaintext0))
+	b.SetBytes(int64(len(plaintext0)))
+	for i := 0; i < b.N; i++ {
+		dst, err = Decompress(dst, compressed)
+		if err != nil {
+			b.Errorf("Decompress error: %v", err)
+		}
+		dst = dst[0:0]
+	}
+}
+
 func TestContinueCompress(t *testing.T) {
 	cc := NewContinueCompress(32*1024, 4096)
 
@@ -161,5 +216,26 @@ func TestContinueCompressError(t *testing.T) {
 	err = cc.Write(largeMsg)
 	if err != ErrSrcTooLarge {
 		t.Errorf("Expect %v, got %v", ErrSrcTooLarge, err)
+	}
+}
+
+func BenchmarkContinueCompress(b *testing.B) {
+	cc := NewContinueCompress(32*1024, 4096)
+	defer cc.Release()
+
+	var err error
+	dst := make([]byte, 0, CompressBound(len(plaintext0)))
+
+	b.SetBytes(int64(len(plaintext0)))
+	for i := 0; i < b.N; i++ {
+		err = cc.Write(plaintext0)
+		if err != nil {
+			b.Errorf("Write error: %v", err)
+		}
+		dst, err = cc.Process(dst)
+		if err != nil {
+			b.Errorf("Process error: %v", err)
+		}
+		dst = dst[0:0]
 	}
 }

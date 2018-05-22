@@ -41,7 +41,7 @@ func VersionString() string {
 // in a "worst case" scenario (input data not compressible).
 // see macro LZ4_COMPRESSBOUND.
 func CompressBound(inputSize int) int {
-	if inputSize > MaxInputSize {
+	if inputSize <= 0 || inputSize > MaxInputSize {
 		return 0
 	}
 	return inputSize + inputSize/255 + 16
