@@ -91,8 +91,9 @@ func Compress(dst, src []byte) ([]byte, error) {
 
 	// Slow path
 	compressBound := CompressBound(len(src))
-	for cap(dst)-dstLen < compressBound {
-		dst = append(dst, 0)
+	if cap(dst)-dstLen < compressBound {
+		newDst := make([]byte, 0, dstLen+compressBound)
+		dst = append(newDst, dst...)
 	}
 	dst = dst[:cap(dst)]
 	result := C.LZ4_compress_default(
