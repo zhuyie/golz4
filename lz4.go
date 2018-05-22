@@ -1,7 +1,7 @@
 package golz4
 
 /*
-#cgo CFLAGS: -Wno-deprecated-declarations
+#cgo CFLAGS: -O3 -Wno-deprecated-declarations
 #include "lz4/lib/lz4.h"
 #include "lz4/lib/lz4.c"
 #include <stdlib.h>
