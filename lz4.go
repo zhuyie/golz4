@@ -116,7 +116,6 @@ type ContinueCompress struct {
 	ringBuffer     []byte
 	offset         int
 	msgLen         int
-	err            error
 }
 
 // NewContinueCompress returns a new ContinueCompress object.
@@ -169,9 +168,6 @@ func (cc *ContinueCompress) Write(src []byte) error {
 func (cc *ContinueCompress) Process(dst []byte) ([]byte, error) {
 	if cc.msgLen == 0 {
 		return nil, ErrNoData
-	}
-	if cc.err != nil {
-		return dst, cc.err
 	}
 
 	// If dstCapacity >= LZ4_compressBound(srcSize), compression is guaranteed to succeed, and runs faster.

@@ -3,6 +3,7 @@ package golz4
 import (
 	"bytes"
 	"testing"
+	"time"
 )
 
 func TestVersion(t *testing.T) {
@@ -105,7 +106,6 @@ func TestCompressError(t *testing.T) {
 
 func TestContinueCompress(t *testing.T) {
 	cc := NewContinueCompress(32*1024, 4096)
-	defer cc.Release()
 
 	err := cc.Write([]byte("abcdefghijklmnoptrstuvwxyz"))
 	if err != nil {
@@ -130,4 +130,29 @@ func TestContinueCompress(t *testing.T) {
 		t.Errorf("Process failed: %v", err)
 	}
 	t.Logf("dst1 = %v", dst1)
+
+	// Let finalizer run...
+	cc = nil
+	time.Sleep(500 * time.Millisecond)
+}
+
+func TestContinueCompressError(t *testing.T) {
+	cc := NewContinueCompress(0, 0)
+	defer cc.Release()
+
+	_, err := cc.Process(nil)
+	if err != ErrNoData {
+		t.Errorf("Expect %v, got %v", ErrSrcTooLarge, err)
+	}
+
+	err = cc.Write(nil)
+	if err != nil {
+		t.Errorf("Write failed: %v", err)
+	}
+
+	largeMsg := make([]byte, 257) // default maxMessageSize is 256
+	err = cc.Write(largeMsg)
+	if err != ErrSrcTooLarge {
+		t.Errorf("Expect %v, got %v", ErrSrcTooLarge, err)
+	}
 }
