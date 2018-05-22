@@ -6,7 +6,7 @@ package golz4
 #include "lz4/lib/lz4.c"
 #include <stdlib.h>
 
-static int LZ4_decompress_safe_continue_and_memcpy (
+static int LZ4_decompress_safe_continue_and_memcpy(
 	LZ4_streamDecode_t* stream,
 	const char* src, int srcSize,
 	char* dstBuf, int dstBufCapacity,
