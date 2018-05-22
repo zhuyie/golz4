@@ -111,12 +111,15 @@ func Decompress(dst, src []byte) ([]byte, error) {
 
 // ContinueCompress implements streaming compression.
 type ContinueCompress struct {
-	dictionarySize int
-	maxMessageSize int
-	lz4Stream      *C.LZ4_stream_t
-	ringBuffer     []byte
-	offset         int
-	msgLen         int
+	dictionarySize     int
+	maxMessageSize     int
+	lz4Stream          *C.LZ4_stream_t
+	ringBuffer         []byte
+	offset             int
+	msgLen             int
+	processTimes       int64
+	totalSrcLen        int64
+	totalCompressedLen int64
 }
 
 // NewContinueCompress returns a new ContinueCompress object.
@@ -164,7 +167,7 @@ func (cc *ContinueCompress) Write(src []byte) error {
 		return ErrInternal
 	}
 	cc.ringBuffer = append(cc.ringBuffer, src...)
-	cc.msgLen += len(src)
+	cc.msgLen += srcLen
 	return nil
 }
 
@@ -195,13 +198,24 @@ func (cc *ContinueCompress) Process(dst []byte) ([]byte, error) {
 	}
 	dst = dst[:result]
 
+	// Update stats
+	cc.processTimes++
+	cc.totalSrcLen += int64(cc.msgLen)
+	cc.totalCompressedLen += int64(result)
+
 	// Add and wraparound the ringbuffer offset
 	cc.offset += cc.msgLen
 	if cc.offset >= cc.dictionarySize {
 		cc.offset = 0
 		cc.ringBuffer = cc.ringBuffer[0:0]
 	}
+	// Reset msgLen
 	cc.msgLen = 0
 
 	return dst, nil
+}
+
+// Stats returns statistics data.
+func (cc *ContinueCompress) Stats() (processTimes, totalSrcLen, totalCompressedLen int64) {
+	return cc.processTimes, cc.totalSrcLen, cc.totalCompressedLen
 }

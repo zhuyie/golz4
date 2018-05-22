@@ -131,6 +131,13 @@ func TestContinueCompress(t *testing.T) {
 		}
 	}
 
+	processTimes, totalSrcLen, totalCompressedLen := cc.Stats()
+	if processTimes != 5001 {
+		t.Errorf("Expect %v, got %v", 5001, processTimes)
+	}
+	ratio := float64(totalCompressedLen) / float64(totalSrcLen) * 100.0
+	t.Logf("totalSrcLen=%v, totalCompressedLen=%v, ratio=%.1f%%", totalSrcLen, totalCompressedLen, ratio)
+
 	// Let finalizer run...
 	cc = nil
 	runtime.GC()
