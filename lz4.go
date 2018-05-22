@@ -1,8 +1,26 @@
 package golz4
 
-// #cgo CFLAGS: -Wno-deprecated-declarations
-// #include "lz4/lib/lz4.h"
-// #include "lz4/lib/lz4.c"
+/*
+#cgo CFLAGS: -Wno-deprecated-declarations
+#include "lz4/lib/lz4.h"
+#include "lz4/lib/lz4.c"
+#include <stdlib.h>
+
+static int LZ4_decompress_safe_continue_and_memcpy (
+	LZ4_streamDecode_t* stream,
+	const char* src, int srcSize,
+	char* dstBuf, int dstBufCapacity,
+	char* dst)
+{
+	// decompress to ringbuffer
+	int result = LZ4_decompress_safe_continue(stream, src, dstBuf, srcSize, dstBufCapacity);
+	if (result > 0) {
+		// copy decompressed data to dst
+		memcpy(dst, dstBuf, (size_t)result);
+	}
+	return result;
+}
+*/
 import "C"
 
 import (
@@ -218,4 +236,99 @@ func (cc *ContinueCompress) Process(dst []byte) ([]byte, error) {
 // Stats returns statistics data.
 func (cc *ContinueCompress) Stats() (processTimes, totalSrcLen, totalCompressedLen int64) {
 	return cc.processTimes, cc.totalSrcLen, cc.totalCompressedLen
+}
+
+// ContinueDecompress implements streaming decompression.
+type ContinueDecompress struct {
+	dictionarySize       int
+	maxMessageSize       int
+	lz4Stream            *C.LZ4_streamDecode_t
+	ringBuffer           []byte
+	offset               int
+	processTimes         int64
+	totalSrcLen          int64
+	totalDecompressedLen int64
+}
+
+// NewContinueDecompress returns a new ContinueDecompress object.
+//
+// dictionarySize and maxMessageSize must be exactly the same as NewContinueCompress.
+// see LZ4_decompress_*_continue() - Synchronized mode.
+//
+// Call Release when the ContinueDecompress is no longer needed.
+func NewContinueDecompress(dictionarySize, maxMessageSize int) *ContinueDecompress {
+	if dictionarySize < 4096 {
+		dictionarySize = 4096
+	}
+	if maxMessageSize < 256 {
+		maxMessageSize = 256
+	}
+	cd := &ContinueDecompress{
+		dictionarySize: dictionarySize,
+		maxMessageSize: maxMessageSize,
+		lz4Stream:      C.LZ4_createStreamDecode(),
+		ringBuffer:     make([]byte, dictionarySize+maxMessageSize),
+	}
+	runtime.SetFinalizer(cd, freeContinueDecompress)
+	return cd
+}
+
+func freeContinueDecompress(v interface{}) {
+	v.(*ContinueDecompress).Release()
+}
+
+// Release releases all the resources occupied by cd.
+// cd cannot be used after the release.
+func (cd *ContinueDecompress) Release() {
+	if cd.lz4Stream != nil {
+		C.LZ4_freeStreamDecode(cd.lz4Stream)
+		cd.lz4Stream = nil
+	}
+}
+
+// Process decompress src to dst.
+func (cd *ContinueDecompress) Process(src, dst []byte) ([]byte, error) {
+	srcLen := len(src)
+	if srcLen == 0 {
+		return nil, ErrNoData
+	}
+	dstLen := cap(dst)
+	if dstLen < cd.maxMessageSize {
+		return nil, ErrDstNotLargeEnough
+	}
+	if cd.offset < 0 || cd.offset >= cd.dictionarySize {
+		return nil, ErrInternal
+	}
+
+	// Decompress to ringbuffer, then copy to dst
+	dst = dst[:cd.maxMessageSize]
+	result := C.LZ4_decompress_safe_continue_and_memcpy(
+		cd.lz4Stream,
+		(*C.char)(unsafe.Pointer(&src[0])),
+		C.int(len(src)),
+		(*C.char)(unsafe.Pointer(&cd.ringBuffer[cd.offset])),
+		C.int(cd.maxMessageSize),
+		(*C.char)(unsafe.Pointer(&dst[0])))
+	if result <= 0 {
+		return nil, ErrDecompressFailed
+	}
+	dst = dst[:int(result)]
+
+	// Update stats
+	cd.processTimes++
+	cd.totalSrcLen += int64(len(src))
+	cd.totalDecompressedLen += int64(result)
+
+	// Add and wraparound the ringbuffer offset
+	cd.offset += int(result)
+	if cd.offset >= cd.dictionarySize {
+		cd.offset = 0
+	}
+
+	return dst, nil
+}
+
+// Stats returns statistics data.
+func (cd *ContinueDecompress) Stats() (processTimes, totalSrcLen, totalDecompressedLen int64) {
+	return cd.processTimes, cd.totalSrcLen, cd.totalDecompressedLen
 }

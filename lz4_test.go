@@ -80,7 +80,7 @@ func TestCompress(t *testing.T) {
 		t.Errorf("Decompress failed: %v", err)
 	}
 	if !bytes.Equal(decompressed, plaintext2) {
-		t.Error("decompressed != plaintext1")
+		t.Error("decompressed != plaintext2")
 	}
 }
 
@@ -161,6 +161,10 @@ func BenchmarkDecompress(b *testing.B) {
 
 func TestContinueCompress(t *testing.T) {
 	cc := NewContinueCompress(32*1024, 4096)
+	cd := NewContinueDecompress(32*1024, 4096)
+
+	var compressed []byte
+	var allCompressed [][]byte
 
 	err := cc.Write([]byte("abcdefghijklmnoptrstuvwxyz"))
 	if err != nil {
@@ -170,20 +174,22 @@ func TestContinueCompress(t *testing.T) {
 	if err != nil {
 		t.Errorf("Write failed: %v", err)
 	}
-	_, err = cc.Process(nil)
+	compressed, err = cc.Process(nil)
 	if err != nil {
 		t.Errorf("Process failed: %v", err)
 	}
+	allCompressed = append(allCompressed, compressed)
 
 	for i := 0; i < 5000; i++ {
 		err = cc.Write([]byte("abcdefghijklmnoptrstuvwxyz1234"))
 		if err != nil {
 			t.Errorf("Write failed: %v", err)
 		}
-		_, err = cc.Process(nil)
+		compressed, err = cc.Process(nil)
 		if err != nil {
 			t.Errorf("Process failed: %v", err)
 		}
+		allCompressed = append(allCompressed, compressed)
 	}
 
 	processTimes, totalSrcLen, totalCompressedLen := cc.Stats()
@@ -193,8 +199,23 @@ func TestContinueCompress(t *testing.T) {
 	ratio := float64(totalCompressedLen) / float64(totalSrcLen) * 100.0
 	t.Logf("totalSrcLen=%v, totalCompressedLen=%v, ratio=%.1f%%", totalSrcLen, totalCompressedLen, ratio)
 
+	decompressBuf := make([]byte, 0, 4096)
+	for _, compressed = range allCompressed {
+		_, err = cd.Process(compressed, decompressBuf)
+		if err != nil {
+			t.Errorf("Process failed: %v", err)
+		}
+	}
+	processTimes, totalSrcLen, totalDecompressedLen := cd.Stats()
+	if processTimes != 5001 {
+		t.Errorf("Expect %v, got %v", 5001, processTimes)
+	}
+	ratio = float64(totalSrcLen) / float64(totalDecompressedLen) * 100.0
+	t.Logf("totalSrcLen=%v, totalDecompressedLen=%v, ratio=%.1f%%", totalSrcLen, totalDecompressedLen, ratio)
+
 	// Let finalizer run...
 	cc = nil
+	cd = nil
 	runtime.GC()
 }
 
@@ -204,7 +225,7 @@ func TestContinueCompressError(t *testing.T) {
 
 	_, err := cc.Process(nil)
 	if err != ErrNoData {
-		t.Errorf("Expect %v, got %v", ErrSrcTooLarge, err)
+		t.Errorf("Expect %v, got %v", ErrNoData, err)
 	}
 
 	err = cc.Write(nil)
@@ -219,12 +240,31 @@ func TestContinueCompressError(t *testing.T) {
 	}
 }
 
-func BenchmarkContinueCompress(b *testing.B) {
+func TestContinueDecompressError(t *testing.T) {
+	cd := NewContinueDecompress(0, 0)
+	defer cd.Release()
+
+	_, err := cd.Process(nil, nil)
+	if err != ErrNoData {
+		t.Errorf("Expect %v, got %v", ErrNoData, err)
+	}
+
+	_, err = cd.Process([]byte("a"), nil)
+	if err != ErrDstNotLargeEnough {
+		t.Errorf("Expect %v, got %v", ErrDstNotLargeEnough, err)
+	}
+}
+
+func BenchmarkContinueCompressDecompress(b *testing.B) {
 	cc := NewContinueCompress(32*1024, 4096)
 	defer cc.Release()
 
+	cd := NewContinueDecompress(32*1024, 4096)
+	defer cd.Release()
+
 	var err error
-	dst := make([]byte, 0, CompressBound(len(plaintext0)))
+	compressed := make([]byte, 0, CompressBound(len(plaintext0)))
+	decompressed := make([]byte, 0, 4096)
 
 	b.SetBytes(int64(len(plaintext0)))
 	for i := 0; i < b.N; i++ {
@@ -232,10 +272,23 @@ func BenchmarkContinueCompress(b *testing.B) {
 		if err != nil {
 			b.Errorf("Write error: %v", err)
 		}
-		dst, err = cc.Process(dst)
+		compressed, err = cc.Process(compressed)
 		if err != nil {
 			b.Errorf("Process error: %v", err)
 		}
-		dst = dst[0:0]
+
+		decompressed, err = cd.Process(compressed, decompressed)
+		if err != nil {
+			b.Errorf("Process error: %v", err)
+		}
+
+		if i%100 == 0 {
+			if !bytes.Equal(plaintext0, decompressed) {
+				b.Error("decompressed != plaintext0")
+			}
+		}
+
+		compressed = compressed[0:0]
+		decompressed = decompressed[0:0]
 	}
 }
