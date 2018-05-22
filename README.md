@@ -1,11 +1,11 @@
 # golz4
 
-[![BSD 2-Clause License][1]][2] [![Build Status][3]][4] [![Coverage Statusd][5]][6]
+[![Build Status][1]][2] [![Go Report Card][3]][4] [![Coverage Statusd][5]][6]
 
-[1]: https://img.shields.io/badge/License-BSD%202--Clause-orange.svg
-[2]: LICENSE
-[3]: https://travis-ci.org/zhuyie/golz4.svg?branch=master
-[4]: https://travis-ci.org/zhuyie/golz4
+[1]: https://travis-ci.org/zhuyie/golz4.svg?branch=master
+[2]: https://travis-ci.org/zhuyie/golz4
+[3]: https://goreportcard.com/badge/github.com/zhuyie/golz4
+[4]: https://goreportcard.com/report/github.com/zhuyie/golz4
 [5]: https://codecov.io/gh/zhuyie/golz4/branch/master/graph/badge.svg
 [6]: https://codecov.io/gh/zhuyie/golz4
 
