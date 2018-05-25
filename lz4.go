@@ -150,6 +150,9 @@ func NewContinueCompress(dictionarySize, maxMessageSize int) *ContinueCompress {
 	if maxMessageSize < 256 {
 		maxMessageSize = 256
 	}
+	if maxMessageSize > MaxInputSize {
+		maxMessageSize = MaxInputSize
+	}
 	cc := &ContinueCompress{
 		dictionarySize: dictionarySize,
 		maxMessageSize: maxMessageSize,
@@ -279,6 +282,9 @@ func NewContinueDecompress(dictionarySize, maxMessageSize int) *ContinueDecompre
 	}
 	if maxMessageSize < 256 {
 		maxMessageSize = 256
+	}
+	if maxMessageSize > MaxInputSize {
+		maxMessageSize = MaxInputSize
 	}
 	cd := &ContinueDecompress{
 		dictionarySize: dictionarySize,
