@@ -111,7 +111,7 @@ func ExampleContinueCompress() {
 			compressed := <-netChannel
 
 			// Decompress the packet
-			decompressed, err := cd.Process(compressed, nil)
+			decompressed, err := cd.Process(nil, compressed)
 			if err != nil {
 				fmt.Println("cd.Process error: ", err)
 				break

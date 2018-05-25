@@ -205,7 +205,7 @@ func TestContinueCompress(t *testing.T) {
 
 	decompressBuf := make([]byte, 0, 4096)
 	for _, compressed = range allCompressed {
-		_, err = cd.Process(compressed, decompressBuf)
+		_, err = cd.Process(decompressBuf, compressed)
 		if err != nil {
 			t.Errorf("Process failed: %v", err)
 		}
@@ -273,7 +273,7 @@ func TestContinueDecompressError(t *testing.T) {
 		t.Errorf("Expect %v, got %v", ErrNoData, err)
 	}
 
-	_, err = cd.Process([]byte("a"), nil)
+	_, err = cd.Process(nil, []byte("a"))
 	if err != ErrDecompressFailed {
 		t.Errorf("Expect %v, got %v", ErrDecompressFailed, err)
 	}
@@ -301,7 +301,7 @@ func BenchmarkContinueCompressDecompress(b *testing.B) {
 			b.Errorf("Process error: %v", err)
 		}
 
-		decompressed, err = cd.Process(compressed, decompressed)
+		decompressed, err = cd.Process(decompressed, compressed)
 		if err != nil {
 			b.Errorf("Process error: %v", err)
 		}

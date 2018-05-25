@@ -321,7 +321,7 @@ func (cd *ContinueDecompress) MaxMessageSize() int {
 
 // Process decompress src to dst.
 // cap(dst) should >= cd.MaxMessageSize() to avoid reallocation.
-func (cd *ContinueDecompress) Process(src, dst []byte) ([]byte, error) {
+func (cd *ContinueDecompress) Process(dst, src []byte) ([]byte, error) {
 	srcLen := len(src)
 	if srcLen == 0 {
 		return nil, ErrNoData
