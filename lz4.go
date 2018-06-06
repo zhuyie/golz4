@@ -32,6 +32,9 @@ import (
 const (
 	// MaxInputSize is the max supported input size. see macro LZ4_MAX_INPUT_SIZE.
 	MaxInputSize = 0x7E000000 // 2 113 929 216 bytes
+
+	minDictionarySize = 4096
+	minMessageSize    = 256
 )
 
 // Error codes
@@ -134,7 +137,6 @@ type ContinueCompress struct {
 	maxMessageSize     int
 	lz4Stream          *C.LZ4_stream_t
 	ringBuffer         []byte
-	offset             int
 	msgLen             int
 	processTimes       int64
 	totalSrcLen        int64
@@ -144,11 +146,11 @@ type ContinueCompress struct {
 // NewContinueCompress returns a new ContinueCompress object.
 // Call Release when the ContinueCompress is no longer needed.
 func NewContinueCompress(dictionarySize, maxMessageSize int) *ContinueCompress {
-	if dictionarySize < 4096 {
-		dictionarySize = 4096
+	if dictionarySize < minDictionarySize {
+		dictionarySize = minDictionarySize
 	}
-	if maxMessageSize < 256 {
-		maxMessageSize = 256
+	if maxMessageSize < minMessageSize {
+		maxMessageSize = minMessageSize
 	}
 	if maxMessageSize > MaxInputSize {
 		maxMessageSize = MaxInputSize
@@ -214,7 +216,7 @@ func (cc *ContinueCompress) Process(dst []byte) ([]byte, error) {
 	if cc.msgLen == 0 {
 		return nil, ErrNoData
 	}
-	if cc.offset < 0 || cc.offset >= len(cc.ringBuffer) {
+	if cc.msgLen > len(cc.ringBuffer) {
 		return nil, ErrInternal
 	}
 
@@ -224,11 +226,12 @@ func (cc *ContinueCompress) Process(dst []byte) ([]byte, error) {
 		dst = make([]byte, 0, dstCapacity)
 	}
 	dst = dst[:dstCapacity]
+	offset := len(cc.ringBuffer) - cc.msgLen
 	result := C.LZ4_compress_fast_continue(
 		cc.lz4Stream,
-		(*C.char)(unsafe.Pointer(&cc.ringBuffer[cc.offset])),
+		(*C.char)(unsafe.Pointer(&cc.ringBuffer[offset])),
 		(*C.char)(unsafe.Pointer(&dst[0])),
-		C.int(len(cc.ringBuffer)-cc.offset),
+		C.int(cc.msgLen),
 		C.int(len(dst)),
 		1)
 	if result <= 0 {
@@ -242,9 +245,7 @@ func (cc *ContinueCompress) Process(dst []byte) ([]byte, error) {
 	cc.totalCompressedLen += int64(result)
 
 	// Add and wraparound the ringbuffer offset
-	cc.offset += cc.msgLen
-	if cc.offset >= cc.dictionarySize {
-		cc.offset = 0
+	if len(cc.ringBuffer) >= cc.dictionarySize {
 		cc.ringBuffer = cc.ringBuffer[0:0]
 	}
 	// Reset msgLen
@@ -277,11 +278,11 @@ type ContinueDecompress struct {
 //
 // Call Release when the ContinueDecompress is no longer needed.
 func NewContinueDecompress(dictionarySize, maxMessageSize int) *ContinueDecompress {
-	if dictionarySize < 4096 {
-		dictionarySize = 4096
+	if dictionarySize < minDictionarySize {
+		dictionarySize = minDictionarySize
 	}
-	if maxMessageSize < 256 {
-		maxMessageSize = 256
+	if maxMessageSize < minMessageSize {
+		maxMessageSize = minMessageSize
 	}
 	if maxMessageSize > MaxInputSize {
 		maxMessageSize = MaxInputSize
