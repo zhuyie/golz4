@@ -39,11 +39,11 @@ const (
 
 // Error codes
 var (
-	ErrSrcTooLarge       = errors.New("src is too large")
-	ErrDstNotLargeEnough = errors.New("dst is not large enough")
-	ErrDecompressFailed  = errors.New("dst is not large enough, or src data is malformed")
-	ErrNoData            = errors.New("no data")
-	ErrInternal          = errors.New("internal error")
+	ErrSrcTooLarge = errors.New("src is too large")
+	ErrCompress    = errors.New("compress: dst is not large enough")
+	ErrDecompress  = errors.New("decompress: dst is not large enough, or src data is malformed")
+	ErrNoData      = errors.New("no data")
+	ErrInternal    = errors.New("internal error")
 )
 
 // VersionNumber returns the library version number.
@@ -68,67 +68,45 @@ func CompressBound(inputSize int) int {
 	return inputSize + inputSize/255 + 16
 }
 
-// Compress appends compressed src to dst and returns the result.
-func Compress(dst, src []byte) ([]byte, error) {
+// Compress compresses `src` into `dst`.
+func Compress(dst, src []byte) (n int, err error) {
 	if len(src) == 0 {
-		return dst, nil
+		return 0, nil
 	}
 	if len(src) > MaxInputSize {
-		return dst, ErrSrcTooLarge
+		return 0, ErrSrcTooLarge
 	}
-
-	dstLen := len(dst)
-	if cap(dst) >= dstLen+len(src) {
-		// Fast path
-		dst = dst[:cap(dst)]
-		result := C.LZ4_compress_default(
+	var result C.int
+	if len(dst) > 0 {
+		result = C.LZ4_compress_default(
 			(*C.char)(unsafe.Pointer(&src[0])),
-			(*C.char)(unsafe.Pointer(&dst[dstLen])),
+			(*C.char)(unsafe.Pointer(&dst[0])),
 			C.int(len(src)),
-			C.int(cap(dst)-dstLen))
-		compressedSize := int(result)
-		if compressedSize > 0 {
-			return dst[:dstLen+compressedSize], nil
-		}
+			C.int(len(dst)))
 	}
-
-	// Slow path
-	compressBound := CompressBound(len(src))
-	if cap(dst)-dstLen < compressBound {
-		newDst := make([]byte, 0, dstLen+compressBound)
-		dst = append(newDst, dst...)
+	if result <= 0 {
+		return 0, ErrCompress
 	}
-	dst = dst[:cap(dst)]
-	result := C.LZ4_compress_default(
-		(*C.char)(unsafe.Pointer(&src[0])),
-		(*C.char)(unsafe.Pointer(&dst[dstLen])),
-		C.int(len(src)),
-		C.int(cap(dst)-dstLen))
-	// Compression is guaranteed to succeed if 'dstCapacity' >= LZ4_compressBound(srcSize)
-	compressedSize := int(result)
-	return dst[:dstLen+compressedSize], nil
+	return int(result), nil
 }
 
-// Decompress appends decompressed src to dst and returns the result.
-func Decompress(dst, src []byte) ([]byte, error) {
+// Decompress decompresses `src` into `dst`.
+func Decompress(dst, src []byte) (n int, err error) {
 	if len(src) == 0 {
-		return dst, nil
+		return 0, nil
 	}
-	dstLen := len(dst)
-	if cap(dst) == dstLen {
-		return dst, ErrDstNotLargeEnough
+	var result C.int
+	if len(dst) > 0 {
+		result = C.LZ4_decompress_safe(
+			(*C.char)(unsafe.Pointer(&src[0])),
+			(*C.char)(unsafe.Pointer(&dst[0])),
+			C.int(len(src)),
+			C.int(len(dst)))
 	}
-	dst = dst[:cap(dst)]
-	result := C.LZ4_decompress_safe(
-		(*C.char)(unsafe.Pointer(&src[0])),
-		(*C.char)(unsafe.Pointer(&dst[dstLen])),
-		C.int(len(src)),
-		C.int(cap(dst)-dstLen))
-	decompressedSize := int(result)
-	if decompressedSize < 0 {
-		return dst[:dstLen], ErrDecompressFailed
+	if result <= 0 {
+		return 0, ErrDecompress
 	}
-	return dst[:dstLen+decompressedSize], nil
+	return int(result), nil
 }
 
 // ContinueCompress implements streaming compression.
@@ -210,22 +188,19 @@ func (cc *ContinueCompress) MsgLen() int {
 	return cc.msgLen
 }
 
-// Process compress buffered data to dst.
-// cap(dst) should >= CompressBound(cc.MsgLen()) to avoid reallocation.
-func (cc *ContinueCompress) Process(dst []byte) ([]byte, error) {
+// Process compresses buffered data into `dst`.
+// len(dst) should >= CompressBound(cc.MsgLen()).
+func (cc *ContinueCompress) Process(dst []byte) (int, error) {
 	if cc.msgLen == 0 {
-		return nil, ErrNoData
+		return 0, ErrNoData
 	}
 	if cc.msgLen > len(cc.ringBuffer) {
-		return nil, ErrInternal
+		return 0, ErrInternal
+	}
+	if len(dst) < CompressBound(cc.msgLen) {
+		return 0, ErrDecompress
 	}
 
-	// If dstCapacity >= LZ4_compressBound(srcSize), compression is guaranteed to succeed, and runs faster.
-	dstCapacity := CompressBound(cc.msgLen)
-	if cap(dst) < dstCapacity {
-		dst = make([]byte, 0, dstCapacity)
-	}
-	dst = dst[:dstCapacity]
 	offset := len(cc.ringBuffer) - cc.msgLen
 	result := C.LZ4_compress_fast_continue(
 		cc.lz4Stream,
@@ -235,9 +210,8 @@ func (cc *ContinueCompress) Process(dst []byte) ([]byte, error) {
 		C.int(len(dst)),
 		1)
 	if result <= 0 {
-		panic(ErrInternal)
+		return 0, ErrInternal
 	}
-	dst = dst[:result]
 
 	// Update stats
 	cc.processTimes++
@@ -251,7 +225,7 @@ func (cc *ContinueCompress) Process(dst []byte) ([]byte, error) {
 	// Reset msgLen
 	cc.msgLen = 0
 
-	return dst, nil
+	return int(result), nil
 }
 
 // Stats returns statistics data.
@@ -320,35 +294,33 @@ func (cd *ContinueDecompress) MaxMessageSize() int {
 	return cd.maxMessageSize
 }
 
-// Process decompress src to dst.
-// cap(dst) should >= cd.MaxMessageSize() to avoid reallocation.
-func (cd *ContinueDecompress) Process(dst, src []byte) ([]byte, error) {
-	srcLen := len(src)
-	if srcLen == 0 {
-		return nil, ErrNoData
+// Process decompresses `src` into `dst`.
+// len(dst) should >= uncompressed_length_of_src_data.
+func (cd *ContinueDecompress) Process(dst, src []byte) (int, error) {
+	if len(src) == 0 {
+		return 0, ErrNoData
 	}
 	if cd.offset < 0 || cd.offset >= cd.dictionarySize {
-		return nil, ErrInternal
-	}
-
-	dstCapacity := cd.maxMessageSize
-	if cap(dst) < dstCapacity {
-		dst = make([]byte, 0, dstCapacity)
+		return 0, ErrInternal
 	}
 
 	// Decompress to ringbuffer, then copy to dst
-	dst = dst[:cd.maxMessageSize]
-	result := C.LZ4_decompress_safe_continue_and_memcpy(
-		cd.lz4Stream,
-		(*C.char)(unsafe.Pointer(&src[0])),
-		C.int(len(src)),
-		(*C.char)(unsafe.Pointer(&cd.ringBuffer[cd.offset])),
-		C.int(cd.maxMessageSize),
-		(*C.char)(unsafe.Pointer(&dst[0])))
-	if result <= 0 {
-		return nil, ErrDecompressFailed
+	var result C.int
+	if dstLen := len(dst); dstLen > 0 {
+		if dstLen > cd.maxMessageSize {
+			dstLen = cd.maxMessageSize
+		}
+		result = C.LZ4_decompress_safe_continue_and_memcpy(
+			cd.lz4Stream,
+			(*C.char)(unsafe.Pointer(&src[0])),
+			C.int(len(src)),
+			(*C.char)(unsafe.Pointer(&cd.ringBuffer[cd.offset])),
+			C.int(dstLen),
+			(*C.char)(unsafe.Pointer(&dst[0])))
 	}
-	dst = dst[:int(result)]
+	if result <= 0 {
+		return 0, ErrDecompress
+	}
 
 	// Update stats
 	cd.processTimes++
@@ -361,7 +333,7 @@ func (cd *ContinueDecompress) Process(dst, src []byte) ([]byte, error) {
 		cd.offset = 0
 	}
 
-	return dst, nil
+	return int(result), nil
 }
 
 // Stats returns statistics data.

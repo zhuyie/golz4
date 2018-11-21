@@ -10,50 +10,33 @@ import (
 
 func ExampleCompress() {
 	// Generate some random bytes
-	plaintext1 := make([]byte, 100)
-	_, err := crypto_rand.Read(plaintext1)
-	if err != nil {
-		fmt.Println("rand.Read error: ", err)
-		return
-	}
-	plaintext2 := make([]byte, 200)
-	_, err = crypto_rand.Read(plaintext2)
+	plaintext := make([]byte, 200)
+	_, err := crypto_rand.Read(plaintext)
 	if err != nil {
 		fmt.Println("rand.Read error: ", err)
 		return
 	}
 
-	// pass nil as dst will allocate a new one
-	compressed, err := Compress(nil, plaintext1)
+	// Compress
+	compressed := make([]byte, CompressBound(len(plaintext)))
+	n, err := Compress(compressed, plaintext)
 	if err != nil {
 		fmt.Println("Compress error: ", err)
 		return
 	}
-	compressedLen1 := len(compressed)
+	compressed = compressed[:n]
 
-	// append compressed plaintext2 to compressed
-	compressed, err = Compress(compressed, plaintext2)
-	if err != nil {
-		fmt.Println("Compress error: ", err)
-		return
-	}
-
-	// dst must be preallocated and have enough capacity
-	decompressed1 := make([]byte, 0, 100)
-	decompressed1, err = Decompress(decompressed1, compressed[:compressedLen1])
+	// Decompress
+	decompressed := make([]byte, len(plaintext))
+	n, err = Decompress(decompressed, compressed)
 	if err != nil {
 		fmt.Println("Decompress error: ", err)
 		return
 	}
-	decompressed2 := make([]byte, 0, 200)
-	decompressed2, err = Decompress(decompressed2, compressed[compressedLen1:])
-	if err != nil {
-		fmt.Println("Decompress error: ", err)
-		return
-	}
+	decompressed = decompressed[:n]
 
-	// check
-	if !bytes.Equal(plaintext1, decompressed1) || !bytes.Equal(plaintext2, decompressed2) {
+	// Check
+	if !bytes.Equal(plaintext, decompressed) {
 		fmt.Println("Not equal")
 		return
 	}
@@ -86,11 +69,13 @@ func ExampleContinueCompress() {
 				fmt.Println("cc.Write error: ", err)
 				break
 			}
-			compressed, err := cc.Process(nil)
+			compressed := make([]byte, CompressBound(cc.MsgLen()))
+			n, err := cc.Process(compressed)
 			if err != nil {
 				fmt.Println("cc.Process error: ", err)
 				break
 			}
+			compressed = compressed[:n]
 
 			// send to the other side
 			netChannel <- packet
@@ -111,11 +96,14 @@ func ExampleContinueCompress() {
 			compressed := <-netChannel
 
 			// Decompress the packet
-			decompressed, err := cd.Process(nil, compressed)
+			decompressed := make([]byte, cd.MaxMessageSize())
+			n, err := cd.Process(decompressed, compressed)
 			if err != nil {
 				fmt.Println("cd.Process error: ", err)
 				break
 			}
+			decompressed = decompressed[:n]
+
 			// Check
 			if !bytes.Equal(plaintext, decompressed) {
 				fmt.Println("Not equal")

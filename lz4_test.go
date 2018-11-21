@@ -35,53 +35,32 @@ func TestCompressBound(t *testing.T) {
 	}
 }
 
+func testCompress(t *testing.T, plaintext []byte) {
+	compressed := make([]byte, CompressBound(len(plaintext)))
+	n, err := Compress(compressed, plaintext)
+	if err != nil {
+		t.Fatalf("Compress error: %v", err)
+	}
+	compressed = compressed[:n]
+	t.Logf("compressed=%v, len=%v", compressed, len(compressed))
+
+	decompressed := make([]byte, len(plaintext))
+	n, err = Decompress(decompressed, compressed)
+	if err != nil {
+		t.Fatalf("Decompress error: %v", err)
+	}
+	decompressed = decompressed[:n]
+	t.Logf("decompressed=%v, len=%v", decompressed, len(decompressed))
+
+	if !bytes.Equal(decompressed, plaintext) {
+		t.Fatalf("decompressed != plaintext")
+	}
+}
+
 func TestCompress(t *testing.T) {
-	var l [3]int
-	decompressed := make([]byte, 0, len(plaintext0))
-
-	compressed, err := Compress(nil, plaintext0)
-	if err != nil {
-		t.Errorf("Compress failed: %v", err)
-	}
-	l[0] = len(compressed)
-
-	compressed, err = Compress(compressed, plaintext1)
-	if err != nil {
-		t.Errorf("Compress failed: %v", err)
-	}
-	l[1] = len(compressed)
-
-	compressed, err = Compress(compressed, plaintext2)
-	if err != nil {
-		t.Errorf("Compress failed: %v", err)
-	}
-	l[2] = len(compressed)
-
-	decompressed, err = Decompress(decompressed, compressed[:l[0]])
-	if err != nil {
-		t.Errorf("Decompress failed: %v", err)
-	}
-	if !bytes.Equal(decompressed, plaintext0) {
-		t.Error("decompressed != plaintext0")
-	}
-
-	decompressed = decompressed[0:0]
-	decompressed, err = Decompress(decompressed, compressed[l[0]:l[1]])
-	if err != nil {
-		t.Errorf("Decompress failed: %v", err)
-	}
-	if !bytes.Equal(decompressed, plaintext1) {
-		t.Error("decompressed != plaintext1")
-	}
-
-	decompressed = decompressed[0:0]
-	decompressed, err = Decompress(decompressed, compressed[l[1]:l[2]])
-	if err != nil {
-		t.Errorf("Decompress failed: %v", err)
-	}
-	if !bytes.Equal(decompressed, plaintext2) {
-		t.Error("decompressed != plaintext2")
-	}
+	testCompress(t, plaintext0)
+	testCompress(t, plaintext1)
+	testCompress(t, plaintext2)
 }
 
 func TestCompressError(t *testing.T) {
@@ -90,52 +69,48 @@ func TestCompressError(t *testing.T) {
 	// src is empty
 	_, err = Compress(nil, nil)
 	if err != nil {
-		t.Errorf("Compress failed: %v", err)
+		t.Errorf("Expect nil, got %v", err)
 	}
 	_, err = Decompress(nil, nil)
 	if err != nil {
-		t.Errorf("Decompress failed: %v", err)
+		t.Errorf("Expect nil, got %v", err)
 	}
 
 	src := []byte{1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}
-	compressed, err := Compress(nil, src)
+	// dst not large enough
+	_, err = Compress(nil, src)
+	if err != ErrCompress {
+		t.Errorf("Expect ErrCompress, got %v", err)
+	}
+	compressed := make([]byte, CompressBound(len(src)))
+	n, err := Compress(compressed, src)
 	if err != nil {
 		t.Errorf("Compress failed: %v", err)
 	}
-
-	// dst is full
-	dst := make([]byte, 1, 1)
-	_, err = Decompress(dst, src)
-	if err == nil {
-		t.Errorf("Expect error, got nil")
-	}
+	compressed = compressed[:n]
 
 	// dst not large enough
-	dst2 := make([]byte, 0, 2)
+	dst := make([]byte, 2)
+	_, err = Decompress(dst, compressed)
+	if err != ErrDecompress {
+		t.Errorf("Expect ErrDecompress, got %v", err)
+	}
+
+	// src data is malformed
+	compressed[0] = 0
+	compressed[1] = 0
+	dst2 := make([]byte, len(src))
 	_, err = Decompress(dst2, compressed)
-	if err == nil {
-		t.Errorf("Expect error, got nil")
+	if err != ErrDecompress {
+		t.Errorf("Expect ErrDecompress, got %v", err)
 	}
 }
 
-func BenchmarkCompressFast(b *testing.B) {
-	var err error
-	dst := make([]byte, 0, CompressBound(len(plaintext0)))
+func BenchmarkCompress(b *testing.B) {
+	dst := make([]byte, CompressBound(len(plaintext0)))
 	b.SetBytes(int64(len(plaintext0)))
 	for i := 0; i < b.N; i++ {
-		dst, err = Compress(dst, plaintext0)
-		if err != nil {
-			b.Errorf("Compress error: %v", err)
-		}
-		dst = dst[0:0]
-	}
-}
-
-func BenchmarkCompressSlow(b *testing.B) {
-	var err error
-	b.SetBytes(int64(len(plaintext0)))
-	for i := 0; i < b.N; i++ {
-		_, err = Compress(nil, plaintext0)
+		_, err := Compress(dst, plaintext0)
 		if err != nil {
 			b.Errorf("Compress error: %v", err)
 		}
@@ -143,19 +118,20 @@ func BenchmarkCompressSlow(b *testing.B) {
 }
 
 func BenchmarkDecompress(b *testing.B) {
-	compressed, err := Compress(nil, plaintext0)
+	compressed := make([]byte, CompressBound(len(plaintext0)))
+	n, err := Compress(compressed, plaintext0)
 	if err != nil {
 		b.Errorf("Compress error: %v", err)
 	}
+	compressed = compressed[:n]
 
-	dst := make([]byte, 0, len(plaintext0))
+	dst := make([]byte, len(plaintext0))
 	b.SetBytes(int64(len(plaintext0)))
 	for i := 0; i < b.N; i++ {
-		dst, err = Decompress(dst, compressed)
+		_, err := Decompress(dst, compressed)
 		if err != nil {
 			b.Errorf("Decompress error: %v", err)
 		}
-		dst = dst[0:0]
 	}
 }
 
@@ -165,6 +141,7 @@ func TestContinueCompress(t *testing.T) {
 
 	var compressed []byte
 	var allCompressed [][]byte
+	var n int
 
 	vvv := []byte("abcdefghijklmnoptrstuvwxyz")
 	err := cc.Write(vvv)
@@ -178,10 +155,12 @@ func TestContinueCompress(t *testing.T) {
 	if err != nil {
 		t.Errorf("Write failed: %v", err)
 	}
-	compressed, err = cc.Process(nil)
+	compressed = make([]byte, CompressBound(cc.MsgLen()))
+	n, err = cc.Process(compressed)
 	if err != nil {
 		t.Errorf("Process failed: %v", err)
 	}
+	compressed = compressed[:n]
 	allCompressed = append(allCompressed, compressed)
 
 	for i := 0; i < 5000; i++ {
@@ -189,10 +168,12 @@ func TestContinueCompress(t *testing.T) {
 		if err != nil {
 			t.Errorf("Write failed: %v", err)
 		}
-		compressed, err = cc.Process(nil)
+		compressed = make([]byte, CompressBound(cc.MsgLen()))
+		n, err = cc.Process(compressed)
 		if err != nil {
 			t.Errorf("Process failed: %v", err)
 		}
+		compressed = compressed[:n]
 		allCompressed = append(allCompressed, compressed)
 	}
 
@@ -203,7 +184,7 @@ func TestContinueCompress(t *testing.T) {
 	ratio := float64(totalCompressedLen) / float64(totalSrcLen) * 100.0
 	t.Logf("totalSrcLen=%v, totalCompressedLen=%v, ratio=%.1f%%", totalSrcLen, totalCompressedLen, ratio)
 
-	decompressBuf := make([]byte, 0, 4096)
+	decompressBuf := make([]byte, 4096)
 	for _, compressed = range allCompressed {
 		_, err = cd.Process(decompressBuf, compressed)
 		if err != nil {
@@ -274,8 +255,8 @@ func TestContinueDecompressError(t *testing.T) {
 	}
 
 	_, err = cd.Process(nil, []byte("a"))
-	if err != ErrDecompressFailed {
-		t.Errorf("Expect %v, got %v", ErrDecompressFailed, err)
+	if err != ErrDecompress {
+		t.Errorf("Expect %v, got %v", ErrDecompress, err)
 	}
 }
 
@@ -287,8 +268,9 @@ func BenchmarkContinueCompressDecompress(b *testing.B) {
 	defer cd.Release()
 
 	var err error
-	compressed := make([]byte, 0, CompressBound(len(plaintext0)))
-	decompressed := make([]byte, 0, 4096)
+	var n int
+	compressed := make([]byte, CompressBound(len(plaintext0)))
+	decompressed := make([]byte, 4096)
 
 	b.SetBytes(int64(len(plaintext0)))
 	for i := 0; i < b.N; i++ {
@@ -296,23 +278,20 @@ func BenchmarkContinueCompressDecompress(b *testing.B) {
 		if err != nil {
 			b.Errorf("Write error: %v", err)
 		}
-		compressed, err = cc.Process(compressed)
+		n, err = cc.Process(compressed)
 		if err != nil {
 			b.Errorf("Process error: %v", err)
 		}
 
-		decompressed, err = cd.Process(decompressed, compressed)
+		n, err = cd.Process(decompressed, compressed[:n])
 		if err != nil {
 			b.Errorf("Process error: %v", err)
 		}
 
 		if i%100 == 0 {
-			if !bytes.Equal(plaintext0, decompressed) {
+			if !bytes.Equal(plaintext0, decompressed[:n]) {
 				b.Error("decompressed != plaintext0")
 			}
 		}
-
-		compressed = compressed[0:0]
-		decompressed = decompressed[0:0]
 	}
 }
